@@ -90,7 +90,7 @@ def fill_folder(dir, save_fol, size = 320):
             arr = get_FEN(filename[:filename.find('.png')])
             for row in range (0, 8):
                 for col in range (0, 8):
-                    pic_crop = pic.crop((square_size*row, (square_size*col), square_size+(square_size*row),
+                    pic_crop = pic.cromp((square_size*row, (square_size*col), square_size+(square_size*row),
                                          square_size+(square_size*col)))
                     pic_crop.save(save_fol+ '/' + str(arr[col][row]) + '-' + str(index) + '.png')
                     index = index +1
@@ -137,6 +137,8 @@ def displayMatrix(mat, N = 8):
     for i in range(0, N):
         mystr = ''
         for j in range(0, N):
+            # TypeError "tensor is unhashable" --> use .ref() instead, need to change dict keys then
+            # tensor_ref = mat[i][7-j].ref()
             mystr = mystr + str(dict[mat[i][7-j]])
         print (mystr)
         print ("")
@@ -162,8 +164,11 @@ def getBoard(pic, model, size2 = 320):
                     os.remove('dump/' + file)
                     # pic_data = pic_data[np.newaxis, ...]
 
-            temp = model.predict_classes(np.asarray([pic_data]))
-            output[row][col] = temp
+            # predict_classes is outdated: predict_step returns tensors: predict??
+            # model.predict returns the probability of beign each of the classes
+            probabilities = model.predict(np.asarray([pic_data]))
+            pred = np.argmax(probabilities, axis=1)
+            output[row][col] = pred
             count = count + 1
         # print(output)
         templist = []
@@ -221,6 +226,8 @@ def save_model(model, file_name= 'model3'):
     # serialize weights to HDF5
     model.save_weights(file_name + ".h5")
     print("Saved model to disk")
+    
+    # pickle this instead
 
 def load_model(json = 'model.json', h5 = 'model.h5'):
     json_file = open(json, 'r')
@@ -279,6 +286,8 @@ def run(build = False, high_res = False, json = 'model.json', h5 = 'model.h5', s
         print("Original input shape: " + str(x_train.shape[1:]))
 
         if build:
+            
+            # make this a function
 
             ### Second, build a model:
             model = Sequential()
