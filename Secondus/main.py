@@ -4,8 +4,12 @@
 from util.conversions import onehot_from_fen, fen_from_filename, fen_from_64
 from util.models import CNN_BatchNormLessFiltersLastLayer, CNN_BatchNormLessFilters, CNN_NoDropout, CNN_Dropout, CNN_Dropout_BatchNorm, CNN_BatchNorm, FullyConnected, LogisticRegression, CNN_LessFilters, CNN_BatchNormLessFilters
 from util.models import save_model
+from util.samplers import make_samplers
 
 # external 
+import cv2
+import numpy as np
+import pandas as pd
 import torch
 import torchvision
 import torch.nn as nn
@@ -30,10 +34,58 @@ import re
 import glob
 import torch.optim as optim
 
-
 device =torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # needs to be small because 
 BATCH_SIZE = 10
+
+# create dataset as list of images
+DATASET_PATH = '/Users/tristanpeat/Documents/cs/chess-cheatcode/Secondus/data/chess-dataset/labeled_preprocessed'
+# generate dataset
+def generate_dataset(path):
+    out = []
+    for img in os.listdir(path):
+        img_label = re.sub(r'[\_][0-9]+', '',img) # remove underscores for dups
+        try:
+            label = onehot_from_fen(fen_from_filename(img_label))
+        except:
+            print(img)
+            print("ERROR")
+            continue
+        # cv2 method of converting an image to a tensor
+        # img_as_img = cv2.imread(path + "/" + img)
+        # # getting eeror expected np.ndarray (got Nonetype)
+        # if img_as_img.any() == None:
+        #     continue
+        # open as PIL img
+        img = Image.open(path + '/' + img)
+        transform = transforms.Compose([transforms.PILToTensor()])
+        out.append((transform(img), label))
+    return out
+
+dataset = generate_dataset(DATASET_PATH)
+print("Dataset loaded with:", len(dataset), "images")
+
+# get samplers and loaders
+train_sampler, val_sampler, test_sampler = make_samplers(dataset,
+                                          validation_split=0.06,
+                                          test_split=.1,
+                                          shuffle_dataset = True)
+
+train_loader = torch.utils.data.DataLoader(dataset=dataset,
+                                           batch_size=BATCH_SIZE,
+                                           sampler=train_sampler)
+
+val_loader = torch.utils.data.DataLoader(dataset=dataset,
+                                           batch_size=BATCH_SIZE,
+                                           sampler=val_sampler)
+
+test_loader = torch.utils.data.DataLoader(dataset=dataset,
+                                          batch_size=BATCH_SIZE,
+                                          sampler=test_sampler)  
+
+print(f'Train loader contains {len(train_loader)} batches of size {BATCH_SIZE}')
+print(f'Val loader contains {len(val_loader)} batches of size {BATCH_SIZE}')
+print(f'Test loader contains {len(test_loader)} batches of size {BATCH_SIZE}')
 
 
 # set baseline accuracy
@@ -125,7 +177,8 @@ def train_model(model: nn.Module,
                   disable=(print_guess or disable_tqdm)) as pbar:
             
             # Iterate through minibatches
-            for step, (images, labels, original_imgs) in enumerate(train_loader):
+            for step, (images, labels) in enumerate(train_loader):
+                # print("thing", thing)
                 images, labels = images.to(device), labels.long().to(device)
 
                 output = model(images).to(device)
@@ -152,29 +205,28 @@ def train_model(model: nn.Module,
                     
                     info = { 'loss': loss.item(), 'accuracy': accuracy }
 
-                    for key, value in info.items():
-                        logger.scalar_summary(key, value, overall_step)
+                    # for key, value in info.items():
+                    #     logger.scalar_summary(key, value, overall_step)
                     
 
-                    info = { f'{fen_from_64(argmax.cpu()[0])}': 
-                                    [original_imgs[0].cpu()]}
+                    #               [original_imgs[0].cpu()]}
 
-                    for tag, images in info.items():
-                        logger.image_summary(tag, images, overall_step)
+                    # for tag, images in info.items():
+                    #     logger.image_summary(tag, images, overall_step)
 
-                    for key, value in model.named_parameters():
-                        key = key.replace('.', '/')
-                        logger.histo_summary(key, 
-                                             value.data.cpu().numpy(), 
-                                             overall_step)
-                        try:
-                            logger.histo_summary(key+'/grad', 
-                                                 value.grad.data.cpu().numpy(),
-                                                 overall_step)
-                        except (AttributeError):
-                            # During transfer learning some of the variables 
-                            # don't have grads
-                            pass
+                    # for key, value in model.named_parameters():
+                    #     key = key.replace('.', '/')
+                    #     logger.histo_summary(key, 
+                    #                          value.data.cpu().numpy(), 
+                    #                          overall_step)
+                    #     try:
+                    #         logger.histo_summary(key+'/grad', 
+                    #                              value.grad.data.cpu().numpy(),
+                    #                              overall_step)
+                    #     except (AttributeError):
+                    #         # During transfer learning some of the variables 
+                    #         # don't have grads
+                    #         pass
 
                 if print_guess and step % print_guess_freq == 0:
                     overall_step = epoch*total_step + step
@@ -228,7 +280,8 @@ def test_model(model: nn.Module,
                 disable=(print_guess or disable_tqdm)) as pbar:
 
             # Iterate through minibatches
-            for step, (images, labels, original_imgs) in enumerate(test_loader):
+            for step, (images, labels) in enumerate(test_loader):
+                # images is a torch tensor, labels is the string description
                 images, labels = images.to(device), labels.long().to(device)
 
                 output = model(images).to(device)
